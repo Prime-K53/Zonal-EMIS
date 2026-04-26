@@ -93,6 +93,46 @@ model School {
   standardisedResults StandardisedResult[]
   pslceData           PSLCEData[]
   examinationResults  ExaminationResult[]
+  profile            SchoolProfile?
+  profileSummaries   SchoolProfileSummary[]
+}
+
+model SchoolProfileSummary {
+  id                    String     @id @default(uuid())
+  schoolId              String
+  school               School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  periodType           String     // DAILY, WEEKLY, MONTHLY, TERMLY, YEARLY
+  periodValue         String     // e.g. "2026-04-26", "2026-W17", "2026-04", "2026-T1", "2026"
+  
+  attendancePresent    Int       @default(0)
+  attendanceAbsent   Int       @default(0)
+  attendanceRate     Float     @default(0)
+  attendanceMaleRate Float     @default(0)
+  attendanceFemaleRate Float   @default(0)
+  
+  totalStudents      Int       @default(0)
+  totalBoys         Int       @default(0)
+  totalGirls        Int       @default(0)
+  newAdmissions    Int       @default(0)
+  
+  totalTeachers     Int       @default(0)
+  qualifiedTeachers Int      @default(0)
+  
+  activitiesConducted Int     @default(0)
+  smcMeetingsHeld   Int       @default(0)
+  inspectionsConducted Int    @default(0)
+  
+  hasElectricity   Boolean   @default(false)
+  hasWaterSource  Boolean   @default(false)
+  totalClassrooms  Int       @default(0)
+  totalToilets   Int       @default(0)
+  
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  
+  @@unique([schoolId, periodType, periodValue])
+  @@index([schoolId, periodType, periodValue])
 }
 
 model Teacher {
@@ -369,13 +409,27 @@ model Submission {
 
 model AuditLog {
   id           String   @id @default(uuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id])
-  action       String
-  entityType   String
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  
+  action       String   // INSERT, UPDATE, DELETE
+  entityType   String   // daily-attendance, learners, smc-meetings, etc.
   entityId     String?
-  details      String?
+  schoolId     String?
+  zone         String?
+  
+  oldValue     String?  // JSON string of old state
+  newValue     String?  // JSON string of new state
+  
+  changedFields String? // JSON array of changed field names
+  
+  description  String?
   timestamp    DateTime @default(now())
+  
+  @@index([entityType, entityId])
+  @@index([schoolId])
+  @@index([zone])
+  @@index([timestamp])
 }
 
 model MonthlyEnrolment {
@@ -586,7 +640,7 @@ model LeaveRequest {
   id           String   @id @default(uuid())
   teacherId    String
   teacherName  String
-  schoolId     String
+  schoolId    String
   type         String
   startDate    DateTime
   endDate      DateTime
@@ -596,4 +650,101 @@ model LeaveRequest {
   attachmentUrl String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model SchoolProfile {
+  id                    String   @id @default(uuid())
+  schoolId              String   @unique
+  school                School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  zone                  String
+  totalStudents        Int      @default(0)
+  totalBoys             Int      @default(0)
+  totalGirls           Int      @default(0)
+  
+  attendanceRate       Float    @default(0)
+  attendanceMaleRate  Float    @default(0)
+  attendanceFemaleRate Float    @default(0)
+  
+  totalTeachers        Int      @default(0)
+  maleTeachers        Int      @default(0)
+  femaleTeachers      Int      @default(0)
+  
+  qualifiedTeachers  Int      @default(0)
+  untrainedTeachers  Int      @default(0)
+  
+  studentTeacherRatio Float   @default(0)
+  
+  totalClassrooms      Int      @default(0)
+  totalToilets        Int      @default(0)
+  hasElectricity     Boolean  @default(false)
+  hasWaterSource     Boolean  @default(false)
+  
+  resourcesCount      Int      @default(0)
+  
+  lastUpdated         DateTime @default(now())
+  createdAt          DateTime @default(now())
+}
+
+model ZoneSummary {
+  id                  String   @id @default(uuid())
+  zone                String
+  
+  totalSchools        Int      @default(0)
+  totalStudents       Int      @default(0)
+  totalBoys           Int      @default(0)
+  totalGirls         Int      @default(0)
+  
+  averageAttendance  Float   @default(0)
+  
+  totalTeachers      Int      @default(0)
+  qualifiedTeachers  Int      @default(0)
+  
+  averageStudentTeacherRatio Float @default(0)
+  
+  schoolsWithElectricity Int   @default(0)
+  schoolsWithWater      Int   @default(0)
+  schoolsWithToilets     Int   @default(0)
+  
+  totalClassrooms     Int     @default(0)
+  totalResources      Int     @default(0)
+  
+  lastUpdated        DateTime @default(now())
+  createdAt          DateTime @default(now())
+}
+
+model ZonalSummary {
+  id              String     @id @default(uuid())
+  zone            String
+  
+  periodType       String     // DAILY, WEEKLY, MONTHLY, TERMLY, YEARLY
+  periodValue     String
+  
+  totalSchools        Int        @default(0)
+  totalStudents     Int        @default(0)
+  totalBoys         Int        @default(0)
+  totalGirls       Int        @default(0)
+  
+  averageAttendance Float     @default(0)
+  
+  totalTeachers     Int        @default(0)
+  qualifiedTeachers Int       @default(0)
+  
+  averageStudentTeacherRatio Float @default(0)
+  
+  schoolsWithElectricity Int    @default(0)
+  schoolsWithWater     Int       @default(0)
+  schoolsWithToilets   Int      @default(0)
+  
+  totalClassrooms    Int       @default(0)
+  totalResources   Int       @default(0)
+  
+  activitiesConducted Int      @default(0)
+  smcMeetingsHeld Int     @default(0)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@unique([zone, periodType, periodValue])
+  @@index([zone, periodType, periodValue])
 }

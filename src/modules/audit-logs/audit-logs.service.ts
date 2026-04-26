@@ -4,11 +4,26 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class AuditLogsService {
   constructor(@Inject(PrismaService) private prisma: PrismaService) {
-    console.log('🏗️ AuditLogsService initialized. Prisma:', !!this.prisma);
+    console.log('AuditLogsService initialized. Prisma:', !!this.prisma);
+  }
+
+  private parseAuditLog<T extends { details?: string | unknown }>(log: T) {
+    if (!log || typeof log.details !== 'string') {
+      return log;
+    }
+
+    try {
+      return {
+        ...log,
+        details: JSON.parse(log.details),
+      };
+    } catch {
+      return log;
+    }
   }
 
   async findAll() {
-    return this.prisma.auditLog.findMany({
+    const logs = await this.prisma.auditLog.findMany({
       include: {
         user: {
           select: {
@@ -20,6 +35,8 @@ export class AuditLogsService {
       },
       orderBy: { timestamp: 'desc' },
     });
+
+    return logs.map(log => this.parseAuditLog(log));
   }
 
   async create(data: { userId: string; action: string; entityType: string; entityId?: string; details?: any }) {

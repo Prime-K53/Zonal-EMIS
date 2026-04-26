@@ -103,7 +103,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ view }) => {
     }
   };
 
-  const isTDC = user?.role === 'TDC_OFFICER';
+  const isTDC = user?.role === 'TDC_OFFICER' || user?.role === 'ADMIN';
 
   const fetchSubmissions = async () => {
     if (!user) return;
@@ -788,8 +788,8 @@ const DashboardOverview: React.FC<{
               </div>
             </div>
           </div>
-          <div className="h-[300px]">
-             <ResponsiveContainer width="100%" height="100%">
+           <div className="h-[300px]">
+             <ResponsiveContainer width="100%" height={300}>
               <AreaChart data={submissionTrendsData}>
                 <defs>
                   <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
@@ -892,7 +892,7 @@ const DashboardOverview: React.FC<{
         <Card className="p-8 border-none shadow-xl shadow-zinc-100 bg-white">
           <h3 className="text-xl font-black text-zinc-900 tracking-tight mb-8">Weekly Attendance Trends</h3>
           <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={300}>
               <BarChart data={attendanceData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                 <XAxis 
@@ -927,7 +927,7 @@ const DashboardOverview: React.FC<{
         <Card className="p-8 border-none shadow-xl shadow-zinc-100 bg-white">
           <h3 className="text-xl font-black text-zinc-900 tracking-tight mb-8">HR Retirement Forecast</h3>
           <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={300}>
               <BarChart data={retirementForecastData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                 <XAxis 

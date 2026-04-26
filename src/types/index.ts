@@ -889,7 +889,7 @@ export interface MaintenanceLog {
   photoUrls?: string[];
 }
 
-export type UserRole = 'TDC_OFFICER';
+export type UserRole = 'ADMIN' | 'TDC_OFFICER' | 'SCHOOL_HEAD' | 'DATA_CLERK';
 
 export interface User {
   id: string;

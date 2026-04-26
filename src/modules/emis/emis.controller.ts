@@ -19,11 +19,7 @@ export class EmisController {
   @Get('all-data')
   @ApiOperation({ summary: 'Get all EMIS data summary' })
   async getAllData() {
-    // This could be a complex aggregation, but for now returned basic summary or unified list
-    return {
-      message: 'All data summary placeholder',
-      timestamp: new Date().toISOString()
-    };
+    return this.emisService.getAllDataSummary();
   }
 
   @Get(':entity')

@@ -1,9 +1,85 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AggregationService } from '../../services/aggregation.service';
+import { ValidationService } from '../../services/validation/validation.service';
+import { AuditService } from '../../services/audit/audit.service';
+
+const ENTITY_TO_MODULE_MAP: Record<string, 'attendance' | 'enrollment' | 'activities' | 'teachers'> = {
+  'daily-attendance': 'attendance',
+  'monthly-enrolment': 'enrollment',
+  'annual-census': 'enrollment',
+  'learners': 'enrollment',
+  'teachers': 'teachers',
+  'smc-meetings': 'activities',
+  'inspections': 'activities',
+};
+
+const VALIDATED_ENTITIES = [
+  'daily-attendance',
+  'learners',
+  'smc-meetings',
+  'inspections',
+];
 
 @Injectable()
 export class EmisService {
-  constructor(@Inject(PrismaService) private prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private prisma: PrismaService,
+    @Inject(AggregationService) private aggregationService: AggregationService,
+    @Inject(ValidationService) private validationService: ValidationService,
+    @Inject(AuditService) private auditService: AuditService,
+  ) {}
+
+  private parseJsonField<T>(value: string | null | undefined, fallback: T): T {
+    if (!value) {
+      return fallback;
+    }
+
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private hydrateSchoolRecord(record: any) {
+    return {
+      ...record,
+      location: this.parseJsonField(record.location, null),
+      administration: this.parseJsonField(record.administration, null),
+      enrollment: this.parseJsonField(record.enrollment, null),
+      staff: this.parseJsonField(record.staff, null),
+      infrastructure: this.parseJsonField(record.infrastructure, null),
+      materials: this.parseJsonField(record.materials, null),
+      timetable: this.parseJsonField(record.timetable, null),
+      performance: this.parseJsonField(record.performance, null),
+      finance: this.parseJsonField(record.finance, null),
+      profileAttendance: this.parseJsonField(record.profileAttendance, null),
+      health: this.parseJsonField(record.health, null),
+      programs: this.parseJsonField(record.programs, null),
+      profileDocuments: this.parseJsonField(record.profileDocuments, []),
+      profileAudit: this.parseJsonField(record.profileAudit, null),
+    };
+  }
+
+  async getAllDataSummary() {
+    const [schools, teachers, inspections, tpd, resources] = await Promise.all([
+      this.prisma.school.findMany(),
+      this.prisma.teacher.findMany(),
+      this.prisma.inspection.findMany(),
+      this.prisma.tPDProgram.findMany(),
+      this.prisma.resource.findMany(),
+    ]);
+
+    return {
+      schools: schools.map(record => this.hydrateSchoolRecord(record)),
+      teachers,
+      inspections,
+      tpd,
+      resources,
+      timestamp: new Date().toISOString(),
+    };
+  }
 
   private getModel(entity: string) {
     // Map URL friendly names to Prisma models
@@ -233,11 +309,33 @@ export class EmisService {
   }
 
   async create(entity: string, data: any) {
+    if (VALIDATED_ENTITIES.includes(entity)) {
+      const validation = await this.validationService.validate(entity, data);
+      this.validationService.throwIfInvalid(validation, entity);
+    }
+
+    const schoolId = data.schoolId;
+    let zone: string | undefined;
+    if (schoolId) {
+      const schoolData = await this.prisma.school.findUnique({
+        where: { id: schoolId },
+        select: { zone: true },
+      });
+      zone = schoolData?.zone;
+    }
+
     const model = this.getModel(entity);
     const preparedData = this.prepareData(entity, data);
     const result = await model.create({ data: preparedData });
+
+    await this.auditService.logInsert(entity, result.id, result, { schoolId, zone });
+
+    if (schoolId && zone) {
+      const module = ENTITY_TO_MODULE_MAP[entity] || 'attendance';
+      const recordDate = data.date ? new Date(data.date) : new Date();
+      await this.aggregationService.onDataChanged(schoolId, zone, module, recordDate, 'create');
+    }
     
-    // Handle side effects (updating school profile)
     await this.handlePostCreateSideEffects(entity, data, result);
     
     return result;
@@ -436,17 +534,72 @@ export class EmisService {
     return record;
   }
 
+  private async getEntitySchoolId(entity: string, id: string): Promise<{schoolId?: string, zone?: string} | null> {
+    const model = this.getModel(entity);
+    try {
+      const record = await model.findUnique({ where: { id }, select: { schoolId: true } });
+      if (!record?.schoolId) return null;
+      const school = await this.prisma.school.findUnique({
+        where: { id: record.schoolId },
+        select: { zone: true },
+      });
+      return { schoolId: record.schoolId, zone: school?.zone };
+    } catch {
+      return null;
+    }
+  }
+
   async update(entity: string, id: string, data: any) {
+    if (VALIDATED_ENTITIES.includes(entity)) {
+      const validation = await this.validationService.validate(entity, data, id);
+      this.validationService.throwIfInvalid(validation, entity);
+    }
+
+    const schoolInfo = await this.getEntitySchoolId(entity, id);
+    const oldRecord = await this.getModel(entity).findUnique({ where: { id } });
+    
     const model = this.getModel(entity);
     const preparedData = this.prepareData(entity, data);
-    return model.update({
+    const result = await model.update({
       where: { id },
       data: preparedData,
     });
+
+    if (oldRecord) {
+      await this.auditService.logUpdate(entity, id, oldRecord, result, {
+        schoolId: schoolInfo?.schoolId,
+        zone: schoolInfo?.zone,
+      });
+    }
+    
+    if (schoolInfo?.schoolId && schoolInfo.zone) {
+      const module = ENTITY_TO_MODULE_MAP[entity] || 'attendance';
+      const recordDate = data.date ? new Date(data.date) : new Date();
+      await this.aggregationService.onDataChanged(schoolInfo.schoolId, schoolInfo.zone, module, recordDate, 'update');
+    }
+    
+    return result;
   }
 
   async remove(entity: string, id: string) {
+    const schoolInfo = await this.getEntitySchoolId(entity, id);
+    const oldRecord = await this.getModel(entity).findUnique({ where: { id } });
+    
     const model = this.getModel(entity);
-    return model.delete({ where: { id } });
+    const result = await model.delete({ where: { id } });
+
+    if (oldRecord) {
+      await this.auditService.logDelete(entity, id, oldRecord, {
+        schoolId: schoolInfo?.schoolId,
+        zone: schoolInfo?.zone,
+      });
+    }
+    
+    if (schoolInfo?.schoolId && schoolInfo.zone) {
+      const module = ENTITY_TO_MODULE_MAP[entity] || 'attendance';
+      await this.aggregationService.onDataChanged(schoolInfo.schoolId, schoolInfo.zone, module, new Date(), 'delete');
+    }
+    
+    return result;
   }
 }

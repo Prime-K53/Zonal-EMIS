@@ -11,7 +11,7 @@ async function testCookies() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: 'admin@emis.mw',
-        password: 'admin123'
+        password: 'password123'
       })
     });
     

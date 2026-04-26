@@ -30,8 +30,8 @@ export class SchoolsController {
   ) {
     const where = search ? {
       OR: [
-        { name: { contains: search, mode: 'insensitive' } },
-        { emisCode: { contains: search, mode: 'insensitive' } },
+        { name: { contains: search } },
+        { emisCode: { contains: search } },
       ],
     } : {};
     

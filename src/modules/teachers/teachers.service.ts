@@ -1,34 +1,60 @@
 // src/modules/teachers/teachers.service.ts
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AggregationService } from '../../services/aggregation.service';
 
 @Injectable()
 export class TeachersService {
-  constructor(@Inject(PrismaService) private prisma: PrismaService) {
-    console.log('🏗️ TeachersService initialized. Prisma:', !!this.prisma);
+  private readonly logger = new Logger(TeachersService.name);
+
+  constructor(
+    @Inject(PrismaService) private prisma: PrismaService,
+    @Inject(AggregationService) private aggregationService: AggregationService,
+  ) {
+    this.logger.log('TeachersService initialized');
+  }
+
+  private parseTeacher(record: any) {
+    if (!record) return record;
+
+    const teacher = { ...record };
+    const jsonFields = ['professionalInfo', 'performanceHistory', 'achievementRecords', 'documents', 'audit'];
+
+    jsonFields.forEach(field => {
+      if (typeof teacher[field] === 'string') {
+        try {
+          teacher[field] = JSON.parse(teacher[field]);
+        } catch {
+          teacher[field] = null;
+        }
+      }
+    });
+
+    return teacher;
   }
 
   async findAll() {
-    console.log('🔍 [TeachersService] Fetching all teachers...');
     try {
       const records = await this.prisma.teacher.findMany({
-        include: { school: true, tpdHistory: true }
+        include: { school: true, tpdHistory: true },
       });
-      console.log(`✅ [TeachersService] Successfully fetched ${records.length} teachers.`);
-      return records;
+
+      return records.map(record => this.parseTeacher(record));
     } catch (error) {
-      console.error('❌ [TeachersService] Error fetching teachers:', error);
+      console.error('Failed to fetch teachers:', error);
       throw error;
     }
   }
 
   async findOne(id: string) {
-    return this.prisma.teacher.findUnique({
+    const teacher = await this.prisma.teacher.findUnique({
       where: { id },
-      include: { 
-        school: true, 
-      }
+      include: {
+        school: true,
+      },
     });
+
+    return this.parseTeacher(teacher);
   }
 
   private mapTeacherData(data: any) {
@@ -38,34 +64,30 @@ export class TeachersService {
       'joiningDate', 'email', 'phone', 'address', 'tradingCenter', 'traditionalAuthority',
       'district', 'registrationNumber', 'dateOfFirstAppointment', 'dateOfPresentStandard',
       'grade', 'remarks', 'teachingClass', 'professionalInfo', 'performanceHistory',
-      'achievementRecords', 'documents', 'audit'
+      'achievementRecords', 'documents', 'audit',
     ];
 
     const cleaned: any = {};
     allowedKeys.forEach(key => {
       if (data[key] !== undefined) cleaned[key] = data[key];
     });
-    
-    // Convert date strings to Date objects
+
     const dateFields = ['dateOfBirth', 'joiningDate', 'dateOfFirstAppointment', 'dateOfPresentStandard'];
     dateFields.forEach(field => {
       if (cleaned[field] && (typeof cleaned[field] === 'string' || typeof cleaned[field] === 'number')) {
-        const d = new Date(cleaned[field]);
-        if (!isNaN(d.getTime())) {
-          cleaned[field] = d;
+        const parsedDate = new Date(cleaned[field]);
+        if (!isNaN(parsedDate.getTime())) {
+          cleaned[field] = parsedDate;
         }
       }
     });
 
-    // Special handling for school relationship
-    // If schoolId is provided, we map it to the school connection
     if (cleaned.schoolId) {
       const schoolId = cleaned.schoolId;
       delete cleaned.schoolId;
       cleaned.school = { connect: { id: schoolId } };
     }
-    
-    // Stringify JSON fields for SQLite
+
     const jsonFields = ['professionalInfo', 'performanceHistory', 'achievementRecords', 'documents', 'audit'];
     jsonFields.forEach(field => {
       if (cleaned[field] && typeof cleaned[field] === 'object') {
@@ -78,23 +100,71 @@ export class TeachersService {
 
   async create(data: any) {
     const mappedData = this.mapTeacherData(data);
-    return this.prisma.teacher.create({
-      data: mappedData as any
+    const teacher = await this.prisma.teacher.create({
+      data: mappedData as any,
     });
+
+    if (data.schoolId) {
+      const school = await this.prisma.school.findUnique({
+        where: { id: data.schoolId },
+        select: { zone: true },
+      });
+      if (school) {
+        await this.aggregationService.triggerUpdates(data.schoolId, school.zone, 'update');
+      }
+    }
+
+    return this.parseTeacher(teacher);
   }
 
   async update(id: string, data: any) {
+    const existing = await this.prisma.teacher.findUnique({
+      where: { id },
+      select: { schoolId: true },
+    });
+
     const mappedData = this.mapTeacherData(data);
     delete mappedData.id;
-    return this.prisma.teacher.update({
+
+    const teacher = await this.prisma.teacher.update({
       where: { id },
-      data: mappedData as any
+      data: mappedData as any,
     });
+
+    const schoolId = data.schoolId || existing?.schoolId;
+    if (schoolId) {
+      const school = await this.prisma.school.findUnique({
+        where: { id: schoolId },
+        select: { zone: true },
+      });
+      if (school) {
+        await this.aggregationService.triggerUpdates(schoolId, school.zone, 'update');
+      }
+    }
+
+    return this.parseTeacher(teacher);
   }
 
   async remove(id: string) {
-    return this.prisma.teacher.delete({
-      where: { id }
+    const existing = await this.prisma.teacher.findUnique({
+      where: { id },
+      select: { schoolId: true },
     });
+
+    const result = await this.prisma.teacher.delete({
+      where: { id },
+    });
+
+    if (existing?.schoolId) {
+      const school = await this.prisma.school.findUnique({
+        where: { id: existing.schoolId },
+        select: { zone: true },
+      });
+      if (school) {
+        await this.aggregationService.triggerUpdates(existing.schoolId, school.zone, 'update');
+      }
+    }
+
+    return result;
   }
 }

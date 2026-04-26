@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -11,42 +11,63 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+async function fetchCurrentUser(): Promise<User | null> {
+  const response = await fetch('/api/auth/me', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json();
+  return payload.user ?? null;
+}
+
+function clearLegacyTokens() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('access_token');
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const storedToken = localStorage.getItem('access_token');
-        if (!storedToken) {
-          setLoading(false);
-          return;
-        }
+    let cancelled = false;
 
-        const res = await fetch('/api/auth/me', { 
-          credentials: 'include',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${storedToken}`
-          }
-        });
-        
-        if (res.ok) {
-          const data = await res.json();
-          setUser(data.user);
-        } else {
-          localStorage.removeItem('access_token');
+    const restoreSession = async () => {
+      try {
+        const currentUser = await fetchCurrentUser();
+        if (!cancelled) {
+          setUser(currentUser);
+        }
+      } catch (error) {
+        console.error('Failed to restore authentication session:', error);
+        if (!cancelled) {
           setUser(null);
         }
-      } catch (err) {
-        console.error('Auth check failed:', err);
-        setUser(null);
       } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    const handleUnauthorized = () => {
+      if (!cancelled) {
+        setUser(null);
         setLoading(false);
       }
     };
-    checkAuth();
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    void restoreSession();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -59,15 +80,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!res.ok) {
       const error = await res.json();
-      const message = Array.isArray(error.message) ? error.message[0] : error.message;
-      throw new Error(message || error.error || 'Login failed');
+      throw new Error(error.message || 'Login failed');
     }
 
     const data = await res.json();
-    if (data.access_token) {
-      localStorage.setItem('access_token', data.access_token);
+    const nextUser = data.user ?? await fetchCurrentUser();
+
+    if (!nextUser) {
+      throw new Error('Login succeeded but the user session could not be restored');
     }
-    setUser(data.user);
+
+    clearLegacyTokens();
+    setUser(nextUser);
+    window.dispatchEvent(new Event('auth:changed'));
   };
 
   const register = async (name: string, email: string, password: string) => {
@@ -80,21 +105,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!res.ok) {
       const error = await res.json();
-      const message = Array.isArray(error.message) ? error.message[0] : error.message;
-      throw new Error(message || error.error || 'Registration failed');
+      throw new Error(error.message || 'Registration failed');
     }
 
     const data = await res.json();
-    if (data.access_token) {
-      localStorage.setItem('access_token', data.access_token);
+    const nextUser = data.user ?? await fetchCurrentUser();
+
+    if (!nextUser) {
+      throw new Error('Registration succeeded but the user session could not be restored');
     }
-    setUser(data.user);
+
+    clearLegacyTokens();
+    setUser(nextUser);
+    window.dispatchEvent(new Event('auth:changed'));
   };
 
   const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    localStorage.removeItem('access_token');
-    setUser(null);
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } finally {
+      clearLegacyTokens();
+      setUser(null);
+      window.dispatchEvent(new Event('auth:changed'));
+    }
   };
 
   return (

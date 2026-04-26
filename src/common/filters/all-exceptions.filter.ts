@@ -18,31 +18,30 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getResponse()
         : (exception as Error).message || 'Internal server error';
 
-    // Log the error for the developer (us) to see in the console
-    if (status === 401) {
-      console.warn(`🔐 [Unauthorized] ${request.method} ${request.url}`);
-      return response.status(status).json({
-        statusCode: status,
-        timestamp: new Date().toISOString(),
-        path: request.url,
-        message: typeof message === 'object' ? (message as any).message : message,
-      });
-    }
-
-    console.error('------- GLOBAL EXCEPTION -------');
-    console.error(`Method: ${request.method} URL: ${request.url}`);
-    if (exception instanceof Error) {
-      console.error('Stack:', exception.stack);
-    } else {
-      console.error('Exception:', exception);
-    }
-    console.error('--------------------------------');
-
-    response.status(status).json({
-      statusCode: status,
-      timestamp: new Date().toISOString(),
+    const normalizedMessage = typeof message === 'object' ? (message as any).message : message;
+    const logPayload = {
+      level: status === 401 ? 'warn' : 'error',
+      status,
+      method: request.method,
       path: request.url,
-      message: typeof message === 'object' ? (message as any).message : message,
-    });
+      message: normalizedMessage,
+      timestamp: new Date().toISOString(),
+      stack: exception instanceof Error ? exception.stack : undefined,
+    };
+
+    const responseBody = {
+      statusCode: status,
+      timestamp: logPayload.timestamp,
+      path: request.url,
+      message: normalizedMessage,
+    };
+
+    if (status === 401) {
+      console.warn('[http-error]', JSON.stringify(logPayload));
+      return response.status(status).json(responseBody);
+    }
+
+    console.error('[http-error]', JSON.stringify(logPayload));
+    response.status(status).json(responseBody);
   }
 }

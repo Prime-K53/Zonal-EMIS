@@ -80,6 +80,8 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [commandSelectedId, setCommandSelectedId] = useState<string | null>(null);
 
+  console.log('App render - user:', user, 'loading:', loading);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {

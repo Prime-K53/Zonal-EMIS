@@ -1,13 +1,19 @@
 // src/modules/schools/schools.service.ts
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSchoolDto } from './dto/create-school.dto';
 import { UpdateSchoolDto } from './dto/update-school.dto';
+import { AggregationService } from '../../services/aggregation.service';
 
 @Injectable()
 export class SchoolsService {
-  constructor(@Inject(PrismaService) private prisma: PrismaService) {
-    console.log('🏗️ SchoolsService initialized. Prisma:', !!this.prisma);
+  private readonly logger = new Logger(SchoolsService.name);
+
+  constructor(
+    @Inject(PrismaService) private prisma: PrismaService,
+    @Inject(AggregationService) private aggregationService: AggregationService,
+  ) {
+    this.logger.log('SchoolsService initialized');
   }
 
   private mapNestedData(data: any) {
@@ -100,9 +106,14 @@ export class SchoolsService {
 
   async create(createSchoolDto: any) {
     const data = this.mapNestedData(createSchoolDto);
-    return this.prisma.school.create({
+    
+    const school = await this.prisma.school.create({
       data,
     });
+
+    await this.aggregationService.triggerUpdates(school.id, school.zone, 'create');
+    
+    return school;
   }
 
   async findAll(params: {
@@ -145,17 +156,50 @@ export class SchoolsService {
   }
 
   async update(id: string, updateSchoolDto: any) {
+    const existing = await this.prisma.school.findUnique({
+      where: { id },
+      select: { zone: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('School not found');
+    }
+
     const data = this.mapNestedData(updateSchoolDto);
-    // Remove id from data to avoid prisma error
     delete data.id;
-    return this.prisma.school.update({
+
+    const school = await this.prisma.school.update({
       where: { id },
       data,
     });
+
+    const newZone = school.zone || existing.zone;
+    await this.aggregationService.triggerUpdates(school.id, newZone, 'update');
+    
+    return school;
   }
 
   async remove(id: string) {
-    return this.prisma.school.delete({ where: { id } });
+    try {
+      const school = await this.prisma.school.findUnique({
+        where: { id },
+        select: { zone: true },
+      });
+
+      if (!school) {
+        throw new NotFoundException(`School with ID ${id} not found`);
+      }
+
+      const result = await this.prisma.school.delete({ where: { id } });
+
+      await this.aggregationService.triggerUpdates(id, school.zone, 'delete');
+      
+      return result;
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`School with ID ${id} not found`);
+      }
+      throw error;
+    }
   }
 
   async getStats() {

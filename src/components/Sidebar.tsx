@@ -69,7 +69,7 @@ export const Sidebar = ({ activeTab, setActiveTab, isOpen, setIsOpen, user }: Si
 
   const filteredMenuItems = menuItems.filter(item => {
     if (!item.role) return true;
-    return user?.role === item.role;
+    return user?.role === item.role || (user?.role === 'ADMIN' && item.role === 'TDC_OFFICER');
   });
 
   return (

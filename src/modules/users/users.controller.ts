@@ -1,5 +1,5 @@
 // src/modules/users/users.controller.ts
-import { Controller, Get, Param, Patch, Body, UseGuards, Post, Inject } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Body, UseGuards, Post, Inject, Delete } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -39,5 +39,11 @@ export class UsersController {
   @ApiOperation({ summary: 'Update school assignments' })
   updateAssignments(@Param('id') id: string, @Body('schools') schools: string[]) {
     return this.usersService.updateAssignments(id, schools);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a user' })
+  remove(@Param('id') id: string) {
+    return this.usersService.remove(id);
   }
 }

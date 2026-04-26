@@ -15,11 +15,8 @@ export default defineConfig({
     },
   },
   server: {
+    port: 5173,
     hmr: true,
-    mimeTypes: {
-      // Fix Windows MIME type issue for TypeScript modules
-      'text/javascript': ['ts', 'tsx', 'jsx']
-    },
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

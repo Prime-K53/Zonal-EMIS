@@ -4,11 +4,26 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class SubmissionsService {
   constructor(@Inject(PrismaService) private prisma: PrismaService) {
-    console.log('🏗️ SubmissionsService initialized. Prisma:', !!this.prisma);
+    console.log('SubmissionsService initialized. Prisma:', !!this.prisma);
+  }
+
+  private parseSubmission<T extends { data?: string | unknown }>(submission: T) {
+    if (!submission || typeof submission.data !== 'string') {
+      return submission;
+    }
+
+    try {
+      return {
+        ...submission,
+        data: JSON.parse(submission.data),
+      };
+    } catch {
+      return submission;
+    }
   }
 
   async findAll() {
-    return this.prisma.submission.findMany({
+    const submissions = await this.prisma.submission.findMany({
       include: {
         user: {
           select: {
@@ -19,6 +34,8 @@ export class SubmissionsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return submissions.map(submission => this.parseSubmission(submission));
   }
 
   async findOne(id: string) {
@@ -33,8 +50,12 @@ export class SubmissionsService {
         },
       },
     });
-    if (!submission) throw new NotFoundException('Submission not found');
-    return submission;
+
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+
+    return this.parseSubmission(submission);
   }
 
   async create(userId: string, data: any) {
@@ -54,7 +75,6 @@ export class SubmissionsService {
       data: { status, updatedAt: new Date() },
     });
 
-    // Create audit log for status change
     await this.prisma.auditLog.create({
       data: {
         userId,
@@ -65,15 +85,15 @@ export class SubmissionsService {
       },
     });
 
-    return submission;
+    return this.parseSubmission(submission);
   }
 
   async editByTDC(id: string, userId: string, updatedData: any, reason: string) {
     const submission = await this.prisma.submission.update({
       where: { id },
-      data: { 
-        data: typeof updatedData === 'object' ? JSON.stringify(updatedData) : updatedData, 
-        updatedAt: new Date() 
+      data: {
+        data: typeof updatedData === 'object' ? JSON.stringify(updatedData) : updatedData,
+        updatedAt: new Date(),
       },
     });
 
@@ -87,16 +107,31 @@ export class SubmissionsService {
       },
     });
 
-    return submission;
+    return this.parseSubmission(submission);
   }
 
   async getAuditLogs(id: string) {
-    return this.prisma.auditLog.findMany({
+    const logs = await this.prisma.auditLog.findMany({
       where: {
         entityType: 'SUBMISSION',
         entityId: id,
       },
       orderBy: { timestamp: 'desc' },
+    });
+
+    return logs.map(log => {
+      if (typeof log.details !== 'string') {
+        return log;
+      }
+
+      try {
+        return {
+          ...log,
+          details: JSON.parse(log.details),
+        };
+      } catch {
+        return log;
+      }
     });
   }
 }

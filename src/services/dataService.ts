@@ -7,6 +7,26 @@ const API_BASE = '/api';
 let authVerified = false;
 let authPromise: Promise<boolean> | null = null;
 
+const clearLegacyTokens = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('access_token');
+};
+
+const resetAuthVerification = () => {
+  authVerified = false;
+  authPromise = null;
+};
+
+const broadcastUnauthorized = () => {
+  resetAuthVerification();
+  clearLegacyTokens();
+  window.dispatchEvent(new Event('auth:unauthorized'));
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('auth:changed', resetAuthVerification);
+}
+
 /**
  * Check authentication status and block all requests until verified
  */
@@ -21,11 +41,8 @@ async function ensureAuthenticated(): Promise<boolean> {
           authVerified = true;
           return true;
         }
-        
-        // Clear invalid token and redirect
-        localStorage.removeItem('token');
-        localStorage.removeItem('access_token');
-        window.location.href = '/login';
+
+        broadcastUnauthorized();
         return false;
       } catch {
         return false;
@@ -46,7 +63,10 @@ async function ensureAuthenticated(): Promise<boolean> {
 async function apiRequest<T>(path: string, options: RequestInit = {}, retries = 2): Promise<T> {
   // Block all API calls except auth/me until auth is verified
   if (!path.includes('/auth/')) {
-    await ensureAuthenticated();
+    const authenticated = await ensureAuthenticated();
+    if (!authenticated) {
+      throw new Error('Unauthorized - please login again');
+    }
   }
 
   const token = localStorage.getItem('token') || localStorage.getItem('access_token');
@@ -72,11 +92,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, retries = 
       
       // Handle 401 Unauthorized immediately - no retry
       if (res.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('access_token');
-        authVerified = false;
-        authPromise = null;
-        window.location.href = '/login';
+        broadcastUnauthorized();
         throw new Error('Unauthorized - please login again');
       }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from './Button';
 import { Input } from './Input';
@@ -15,9 +15,12 @@ export const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
+    console.log('=== HANDLE SUBMIT START ===');
+    console.log('handleSubmit called, isLogin:', isLogin);
     e.preventDefault();
     setLoading(true);
     try {
+      console.log('Attempting login with:', email);
       if (isLogin) {
         await login(email, password);
         toast.success('Successfully logged in');
@@ -25,10 +28,13 @@ export const Login: React.FC = () => {
         await register(name, email, password);
         toast.success('Successfully registered');
       }
+      console.log('Login/Register completed successfully');
     } catch (err: any) {
+      console.log('Login error:', err.message);
       toast.error(err.message || 'Authentication failed');
     } finally {
       setLoading(false);
+      console.log('=== HANDLE SUBMIT END ===');
     }
   };
 

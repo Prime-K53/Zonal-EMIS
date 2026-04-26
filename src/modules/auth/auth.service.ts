@@ -13,11 +13,29 @@ export class AuthService {
     @Inject(JwtService) private jwtService: JwtService,
   ) {}
 
+  private sanitizeUser<T extends { passwordHash?: string; assignedSchools?: string | string[] | null }>(user: T) {
+    const { passwordHash, assignedSchools, ...rest } = user;
+    const parsedAssignments = Array.isArray(assignedSchools)
+      ? assignedSchools
+      : (() => {
+          if (!assignedSchools) return [];
+          try {
+            return JSON.parse(assignedSchools);
+          } catch {
+            return [];
+          }
+        })();
+
+    return {
+      ...rest,
+      assignedSchools: parsedAssignments,
+    };
+  }
+
   async validateUser(email: string, pass: string): Promise<any> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (user && await bcrypt.compare(pass, user.passwordHash)) {
-      const { passwordHash, ...result } = user;
-      return result;
+      return this.sanitizeUser(user);
     }
     return null;
   }
@@ -52,7 +70,7 @@ export class AuthService {
         },
       });
 
-      const { passwordHash: _, ...result } = user;
+      const result = this.sanitizeUser(user);
       const payload = { email: user.email, sub: user.id, role: user.role };
       
       return {
@@ -70,7 +88,6 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException();
     }
-    const { passwordHash: _, ...result } = user;
-    return { user: result };
+    return { user: this.sanitizeUser(user) };
   }
 }

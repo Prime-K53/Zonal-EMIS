@@ -1,12 +1,18 @@
 // src/modules/learners/learners.service.ts
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLearnerDto } from './dto/create-learner.dto';
+import { AggregationService } from '../../services/aggregation.service';
 
 @Injectable()
 export class LearnersService {
-  constructor(@Inject(PrismaService) private prisma: PrismaService) {
-    console.log('🏗️ LearnersService initialized. Prisma:', !!this.prisma);
+  private readonly logger = new Logger(LearnersService.name);
+
+  constructor(
+    @Inject(PrismaService) private prisma: PrismaService,
+    @Inject(AggregationService) private aggregationService: AggregationService,
+  ) {
+    this.logger.log('LearnersService initialized');
   }
 
   async create(dto: any) {
@@ -31,9 +37,19 @@ export class LearnersService {
       createdAt: dto.createdAt ? new Date(dto.createdAt) : undefined,
     };
     
-    return this.prisma.learner.create({
+    const learner = await this.prisma.learner.create({
       data: data as any,
     });
+
+    const school = await this.prisma.school.findUnique({
+      where: { id: dto.schoolId },
+      select: { zone: true },
+    });
+    if (school) {
+      await this.aggregationService.triggerUpdates(dto.schoolId, school.zone, 'update');
+    }
+    
+    return learner;
   }
 
   async promoteAdmissions() {
@@ -77,6 +93,12 @@ export class LearnersService {
   }
 
   async update(id: string, dto: any) {
+    const existing = await this.prisma.learner.findUnique({
+      where: { id },
+      select: { schoolId: true },
+    });
+    if (!existing) throw new NotFoundException('Learner not found');
+
     const data: any = {};
     const allowed = [
       'schoolId', 'firstName', 'lastName', 'gender', 'standard', 'admissionNumber', 
@@ -92,13 +114,40 @@ export class LearnersService {
     if (dto.admissionDate) data.admissionDate = new Date(dto.admissionDate);
     if (dto.enrollmentDate) data.enrollmentDate = new Date(dto.enrollmentDate);
     
-    return this.prisma.learner.update({
+    const learner = await this.prisma.learner.update({
       where: { id },
       data,
     });
+
+    const schoolId = dto.schoolId || existing.schoolId;
+    const school = await this.prisma.school.findUnique({
+      where: { id: schoolId },
+      select: { zone: true },
+    });
+    if (school) {
+      await this.aggregationService.triggerUpdates(schoolId, school.zone, 'update');
+    }
+    
+    return learner;
   }
 
   async remove(id: string) {
-    return this.prisma.learner.delete({ where: { id } });
+    const existing = await this.prisma.learner.findUnique({
+      where: { id },
+      select: { schoolId: true },
+    });
+    if (!existing) throw new NotFoundException('Learner not found');
+
+    const result = await this.prisma.learner.delete({ where: { id } });
+
+    const school = await this.prisma.school.findUnique({
+      where: { id: existing.schoolId },
+      select: { zone: true },
+    });
+    if (school) {
+      await this.aggregationService.triggerUpdates(existing.schoolId, school.zone, 'update');
+    }
+    
+    return result;
   }
 }

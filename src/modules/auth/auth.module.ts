@@ -5,15 +5,16 @@ import { AuthController } from './auth.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './jwt.strategy';
-
-const JWT_FALLBACK_SECRET = 'EMIS_2026_super_secure_jwt_secret_!@#_x9KpL2mQz';
+import { getJwtSecret } from './auth.constants';
 
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || JWT_FALLBACK_SECRET,
-      signOptions: { expiresIn: '1day' },
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: getJwtSecret(),
+        signOptions: { expiresIn: '1d' },
+      }),
     }),
   ],
   providers: [AuthService, JwtStrategy],
