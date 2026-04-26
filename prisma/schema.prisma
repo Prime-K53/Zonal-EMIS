@@ -1,0 +1,599 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String
+  name             String
+  role             String   @default("DATA_COLLECTOR")
+  assignedSchools  String   @default("[]") // JSON string array of EMIS codes or IDs
+  lastLogin        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  
+  auditLogs        AuditLog[]
+  submissions      Submission[]
+}
+
+model School {
+  id                   String   @id @default(uuid())
+  emisCode             String   @unique
+  name                 String
+  zone                 String
+  type                 String   // Primary, Secondary, etc.
+  ownership            String   // Government, Private, etc.
+  yearEstablished      Int?
+  registrationStatus   String   @default("Registered")
+  moeRegistrationNumber String?
+  primarySubCategory   String?
+  juniorPrimaryRange   String?
+  religiousAffiliation String?
+  
+  // Location (flat fields for easy querying)
+  district            String
+  tdc                 String
+  traditionalAuthority String
+  latitude            Float?
+  longitude           Float?
+  physicalAddress     String?
+  
+  // Complex nested objects from frontend
+  location            String?
+  administration      String?
+  enrollment          String?
+  staff              String?
+  infrastructure      String?
+  materials          String?
+  timetable          String?
+  performance        String?
+  finance            String?
+  profileAttendance  String?
+  health             String?
+  programs           String?
+  profileDocuments   String?
+  profileAudit       String?
+
+  // Legacy flat fields (kept for backward compatibility or simple queries)
+  classrooms          Int      @default(0)
+  staffHouses         Int      @default(0)
+  toiletsBoys         Int      @default(0)
+  toiletsGirls        Int      @default(0)
+  hasElectricity      Boolean  @default(false)
+  waterSource         String?
+  condition           String?
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  teachers            Teacher[]
+  learners            Learner[]
+  resources           Resource[]
+  inspections         Inspection[]
+  attendance          DailyAttendance[]
+  enrollmentStats     EnrollmentStat[]
+  promotionRecords    PromotionRecord[]
+  monthlyEnrolment    MonthlyEnrolment[]
+  ifaReports          IFAReport[]
+  teachersReturns     TeachersReturn[]
+  termlyReports       TermlyReport[]
+  annualCensus        AnnualCensus[]
+  continuousAssessments ContinuousAssessment[]
+  maintenanceLogs     MaintenanceLog[]
+  smcMeetings         SMCMeeting[]
+  juniorResults       JuniorResult[]
+  standardisedResults StandardisedResult[]
+  pslceData           PSLCEData[]
+  examinationResults  ExaminationResult[]
+}
+
+model Teacher {
+  id                 String   @id @default(uuid())
+  emisCode           String   @unique
+  firstName          String
+  lastName           String
+  gender             String
+  dateOfBirth        DateTime
+  nationalId         String   @unique
+  employmentNumber   String?
+  status             String   @default("Active")
+  
+  schoolId           String
+  school             School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  qualification      String?
+  specialization     String?
+  joiningDate        DateTime?
+  
+  // New fields for deep integration
+  email              String?
+  phone              String?
+  address            String?
+  tradingCenter      String?
+  traditionalAuthority String?
+  district           String?
+  
+  // Malawi Specific Fields
+  registrationNumber String?
+  dateOfFirstAppointment DateTime?
+  dateOfPresentStandard DateTime?
+  grade              String?
+  remarks            String?
+  teachingClass      String?
+  
+  professionalInfo   String?
+  performanceHistory String?
+  achievementRecords String?
+  documents          String?
+  audit              String?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tpdHistory         TPDHistory[]
+  transferHistory    TransferHistory[]
+  leaveRecords       LeaveRecord[]
+  performanceReviews PerformanceReview[]
+  inspections        Inspection[] // For Teacher type inspections
+}
+
+model TPDHistory {
+  id           String   @id @default(uuid())
+  teacherId    String
+  teacher      Teacher  @relation(fields: [teacherId], references: [id])
+  programTitle String
+  date         DateTime
+  certificateUrl String?
+  createdAt    DateTime @default(now())
+}
+
+model TransferHistory {
+  id           String   @id @default(uuid())
+  teacherId    String
+  teacher      Teacher  @relation(fields: [teacherId], references: [id])
+  fromSchool   String
+  toSchool     String
+  date         DateTime
+  reason       String?
+  status       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model LeaveRecord {
+  id           String   @id @default(uuid())
+  teacherId    String
+  teacher      Teacher  @relation(fields: [teacherId], references: [id])
+  type         String
+  startDate    DateTime
+  endDate      DateTime
+  status       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PerformanceReview {
+  id           String   @id @default(uuid())
+  teacherId    String
+  teacher      Teacher  @relation(fields: [teacherId], references: [id])
+  year         String
+  rating       Int
+  comments     String?
+  supervisor   String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Learner {
+  id              String   @id @default(uuid())
+  schoolId        String
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  firstName       String
+  lastName        String
+  gender          String
+  dateOfBirth     DateTime
+  standard        String
+  admissionNumber String?
+  admissionDate   DateTime?
+  status          String   @default("Active")
+  isAdmission     Boolean  @default(false)
+  isSNE           Boolean  @default(false)
+  sneType         String?
+  disabilityType  String?
+  guardianName    String?
+  guardianPhone   String?
+  address         String?
+  enrollmentDate  DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Resource {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name         String
+  category     String
+  quantity     Int      @default(0)
+  condition    String   @default("Good")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model DailyAttendance {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  date         String   // YYYY-MM-DD
+  
+  learners     String     // Stringified JSON: { present: { boys, girls }, absent: { boys, girls }, reasons: {} }
+  teachers     String     // Stringified JSON: { present: { male, female }, absent: { male, female }, onLeave, late }
+  
+  submittedBy  String
+  createdAt    DateTime @default(now())
+}
+
+model EnrollmentStat {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYear String
+  standard     String
+  boys         Int      @default(0)
+  girls        Int      @default(0)
+  transfersIn  Int      @default(0)
+  transfersOut Int      @default(0)
+  dropouts     Int      @default(0)
+  backToSchoolBoys Int  @default(0)
+  backToSchoolGirls Int @default(0)
+  createdAt    DateTime @default(now())
+}
+
+model AcademicYear {
+  id           String   @id @default(uuid())
+  year         String   @unique
+  status       String   @default("Active")
+  startDate    DateTime
+  endDate      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  terms        Term[]
+}
+
+model Term {
+  id             String       @id @default(uuid())
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  name           String       // Term 1, Term 2, etc.
+  startDate      DateTime
+  endDate      DateTime
+  status         String       @default("Active")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model StandardClass {
+  id           String   @id @default(uuid())
+  name         String   @unique // Standard 1, Form 1, etc.
+  code         String?  @unique
+  createdAt    DateTime @default(now())
+}
+
+model SystemSettings {
+  id                      String   @id @default(uuid())
+  currentAcademicYearId   String?
+  currentTermId           String?
+  systemEmail             String?
+  districtName            String?
+  zoneName                String?
+  tdcName                 String?
+  maintenanceMode         Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @default(now())
+}
+
+model ExamAdministration {
+  id           String   @id @default(uuid())
+  teacherId    String
+  schoolId     String
+  examType     String
+  year         Int
+  role         String
+  status       String   @default("Assigned")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PromotionRecord {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYear String
+  standard     String
+  promoted     Int      @default(0)
+  repeated     Int      @default(0)
+  droppedOut   Int      @default(0)
+  promotedBoys Int      @default(0)
+  promotedGirls Int     @default(0)
+  repeatedBoys Int      @default(0)
+  repeatedGirls Int     @default(0)
+  droppedBoys  Int      @default(0)
+  droppedGirls Int      @default(0)
+  createdAt    DateTime @default(now())
+}
+
+model Inspection {
+  id              String   @id @default(uuid())
+  schoolId        String
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teacherId       String?
+  teacher         Teacher? @relation(fields: [teacherId], references: [id])
+  inspectorId     String
+  date            DateTime
+  score           Float
+  type            String   // School or Teacher
+  status          String   @default("Draft")
+  findings        String?
+  recommendations String?
+  photoUrls       String?    
+  categories      String?
+  schoolDetails   String?
+  teacherDetails  String?
+  
+  // JSON field for detailed scores to keep the schema manageable 
+  // but we can extract specific critical metrics if needed
+  details         String?    
+  
+  createdAt       DateTime @default(now())
+}
+
+model Submission {
+  id           String   @id @default(uuid())
+  type         String   // Attendance, Census, etc.
+  status       String   @default("PENDING")
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  data         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  action       String
+  entityType   String
+  entityId     String?
+  details      String?
+  timestamp    DateTime @default(now())
+}
+
+model MonthlyEnrolment {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  month        String   // YYYY-MM
+  year         Int
+  enrolment    String     // Stringified JSON: [standard: string]: { boys, girls }
+  newAdmissions Int
+  transfersIn  Int
+  transfersOut Int
+  dropouts     String     // Stringified JSON: { boys, girls, reasons }
+  submittedBy  String
+  createdAt    DateTime @default(now())
+}
+
+model IFAReport {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  month        String
+  year         Int
+  girls6to9    String
+  boys6to12    String
+  girls10to12  String
+  stockBalance Int
+  remarks      String?
+  submittedBy  String
+  createdAt    DateTime @default(now())
+}
+
+model TeachersReturn {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  month        String
+  year         Int
+  teachers     String     // Stringified JSON: Array of teacher records
+  submittedBy  String
+  createdAt    DateTime @default(now())
+}
+
+model TermlyReport {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  term         Int
+  year         Int
+  academicPerformance String
+  activities   String   // Stringified JSON list
+  challenges   String   // Stringified JSON list
+  submittedBy  String
+  createdAt    DateTime @default(now())
+}
+
+model AnnualCensus {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  year         Int
+  infrastructure String
+  materials    String
+  staffing     String
+  submittedBy  String
+  createdAt    DateTime @default(now())
+}
+
+model JuniorResult {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  year         Int
+  term         Int
+  className    String
+  registered   String
+  sat          String
+  passed       String
+  failed       String
+  createdAt    DateTime @default(now())
+}
+
+model StandardisedResult {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  year         Int
+  term         Int
+  learnerName  String
+  sex          String
+  className    String
+  scores       String
+  total        Int
+  createdAt    DateTime @default(now())
+}
+
+model PSLCEData {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  year         Int
+  summary      String
+  selection    String
+  subjectGrades String
+  createdAt    DateTime @default(now())
+}
+
+model ExaminationResult {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  year         Int
+  examType     String
+  candidates   String
+  passed       String
+  standards    String?
+  subjectPerformance String?
+  createdAt    DateTime @default(now())
+}
+
+model ContinuousAssessment {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  learnerId    String
+  subject      String
+  term         Int
+  year         Int
+  score        Int
+  totalMarks   Int
+  grade        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model MaintenanceLog {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  item         String
+  description  String
+  cost         Float?
+  date         DateTime
+  status       String
+  createdAt    DateTime @default(now())
+}
+
+model SMCMeeting {
+  id           String   @id @default(uuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  date         DateTime
+  topic        String
+  participants Int
+  decisions    String?
+  nextMeeting  DateTime?
+  createdAt    DateTime @default(now())
+}
+
+model Department {
+  id           String   @id @default(uuid())
+  name         String
+  description  String
+  headId       String?
+  staffCount   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model OfficerOperation {
+  id           String   @id @default(uuid())
+  officerId    String
+  officerName  String
+  tdcName      String
+  zone         String
+  type         String
+  date         String
+  activities   String
+  challenges   String   // Stringified JSON list
+  recommendations String // Stringified JSON list
+  submittedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model NESStandard {
+  id           String   @id @default(uuid())
+  number       Int
+  title        String
+  description  String
+  domain       String
+  indicators   String // Stringified JSON list
+  createdAt    DateTime @default(now())
+}
+
+model TPDProgram {
+  id           String   @id @default(uuid())
+  title        String
+  provider     String
+  date         String
+  duration     String
+  targetAudience String
+  status       String
+  participantsCount Int @default(0)
+  createdAt    DateTime @default(now())
+}
+
+model LeaveRequest {
+  id           String   @id @default(uuid())
+  teacherId    String
+  teacherName  String
+  schoolId     String
+  type         String
+  startDate    DateTime
+  endDate      DateTime
+  daysRequested Int
+  reason       String
+  status       String   @default("Pending")
+  attachmentUrl String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

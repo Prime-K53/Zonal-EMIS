@@ -1,0 +1,8 @@
+{
+  "name": "EMIS TDC-Level System",
+  "description": "A comprehensive Education Management Information System for Teacher Development Centres (TDC), featuring Teacher and School registries, Census data, TPD tracking, and Inspection modules.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
