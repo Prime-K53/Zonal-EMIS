@@ -21,10 +21,6 @@ export class AggregationService {
     private eventEmitter: DataEventEmitter,
   ) {}
 
-  get prisma() {
-    return this.prisma;
-  }
-
   async onModuleInit() {
     this.logger.log('AggregationService initialized');
   }

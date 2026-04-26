@@ -39,9 +39,8 @@ export const SubmissionReview: React.FC<SubmissionReviewProps> = ({ submissionId
   useEffect(() => {
     const fetchDetails = async () => {
       try {
-        const res = await fetch(`/api/submissions/${submissionId}`);
-        if (res.ok) {
-          const data = await res.json();
+        const data = await dataService.getSubmission(submissionId);
+        if (data) {
           setSubmission(data);
           setEditData(data.data);
         }

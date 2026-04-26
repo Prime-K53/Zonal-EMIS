@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../modules/prisma/prisma.service';
+import { PrismaService } from '../../modules/prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
 import { PerformanceService } from '../performance/performance.service';
 import { MetricsLoggerService } from '../logging/metrics-logger.service';
@@ -13,7 +13,7 @@ import {
   SchoolMetrics,
   ZonalMetrics,
 } from './formulas';
-import { MetricsCalculationException } from '../../src/exceptions/metrics.exceptions';
+import { MetricsCalculationException } from '../../exceptions/metrics.exceptions';
 
 @Injectable()
 export class MetricsService {

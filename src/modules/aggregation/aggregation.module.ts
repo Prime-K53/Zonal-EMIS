@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { DataEventEmitter } from '../services/data-event-emitter.service';
-import { AggregationService } from '../services/aggregation.service';
+import { DataEventEmitter } from '../../services/data-event-emitter.service';
+import { AggregationService } from '../../services/aggregation.service';
 
 @Module({
   imports: [

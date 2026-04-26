@@ -12,7 +12,7 @@ class RebuildSchoolDto {
   endDate?: string;
 }
 
-@Controller('api/rebuild')
+@Controller('rebuild')
 export class RebuildController {
   constructor(private aggregationService: AggregationService) {}
 

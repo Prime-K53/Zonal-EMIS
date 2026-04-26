@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { PrismaModule } from '../modules/prisma/prisma.module';
-import { AuditService } from './audit.service';
+import { PrismaModule } from '../../modules/prisma/prisma.module';
+import { AuditService } from '../../services/audit/audit.service';
 
 @Module({
   imports: [PrismaModule],

@@ -1,5 +1,5 @@
 import { Injectable, Logger, LoggerService } from '@nestjs/common';
-import { MetricsCalculationException } from '../../src/exceptions/metrics.exceptions';
+import { MetricsCalculationException } from '../../exceptions/metrics.exceptions';
 
 export interface LogEntry {
   timestamp: string;

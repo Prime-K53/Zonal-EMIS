@@ -33,12 +33,10 @@ import {
   RankingPagination,
   CacheStats,
   PerformanceStats,
-  ApiResponse,
-  PaginatedApiResponse,
 } from '../docs/metrics.swagger';
 
 @ApiTags('metrics')
-@Controller('api/metrics')
+@Controller('metrics')
 export class MetricsController {
   private readonly logger = new Logger(MetricsController.name);
 

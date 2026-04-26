@@ -146,7 +146,7 @@ export default function App() {
       case 'academics':
         return <Academics />;
       case 'zonal-activities':
-        return <ZonalActivities />;
+        return <ZonalActivities onNavigate={setActiveTab} />;
       case 'inspections':
         return <AdvancedInspections />;
       case 'maintenance':

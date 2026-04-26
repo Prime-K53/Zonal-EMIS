@@ -27,6 +27,23 @@ if (typeof window !== 'undefined') {
   window.addEventListener('auth:changed', resetAuthVerification);
 }
 
+// Subscription registry for auto-refresh after mutations
+type DataCallback<T> = (data: T) => void;
+interface SubscriptionEntry {
+  fetchFn: () => Promise<void>;
+  callbacks: Set<DataCallback<any>>;
+  intervalId: ReturnType<typeof setInterval>;
+}
+const subscriptionRegistry: Record<string, SubscriptionEntry> = {};
+
+// Broadcast data change to trigger immediate refresh
+function broadcastDataChange(entity: string) {
+  const entry = subscriptionRegistry[entity];
+  if (entry) {
+    entry.fetchFn();
+  }
+}
+
 /**
  * Check authentication status and block all requests until verified
  */
@@ -134,6 +151,51 @@ export function isAuthenticated(): boolean {
 }
 
 export const dataService = {
+  // Authentication
+  getCurrentUser: async () => {
+    const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
+    if (!res.ok) return null;
+    return res.json();
+  },
+  login: async (email: string, password: string) => {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ message: 'Login failed' }));
+      throw new Error(error.message || 'Login failed');
+    }
+    const data = await res.json();
+    resetAuthVerification();
+    window.dispatchEvent(new Event('auth:changed'));
+    return data;
+  },
+  signup: async (email: string, password: string, name: string) => {
+    const res = await fetch(`${API_BASE}/auth/signup`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ message: 'Signup failed' }));
+      throw new Error(error.message || 'Signup failed');
+    }
+    const data = await res.json();
+    resetAuthVerification();
+    window.dispatchEvent(new Event('auth:changed'));
+    return data;
+  },
+  logout: async () => {
+    await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+    resetAuthVerification();
+    clearLegacyTokens();
+    window.dispatchEvent(new Event('auth:changed'));
+  },
+
   // Teachers
   subscribeToTeachers: (callback: (teachers: Teacher[]) => void) => {
     const fetchTeachers = async () => {
@@ -155,25 +217,32 @@ export const dataService = {
     return () => clearInterval(interval);
   },
   addTeacher: async (teacher: Omit<Teacher, 'id'>) => {
-    return apiRequest<Teacher>('/teachers', {
+    const result = await apiRequest<Teacher>('/teachers', {
       method: 'POST',
       body: JSON.stringify(teacher),
     });
+    broadcastDataChange('teachers');
+    return result;
   },
   updateTeacher: async (id: string, teacher: Partial<Teacher>) => {
-    return apiRequest<Teacher>(`/teachers/${id}`, {
+    const result = await apiRequest<Teacher>(`/teachers/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(teacher),
     });
+    broadcastDataChange('teachers');
+    return result;
   },
   deleteTeacher: async (id: string) => {
-    return apiRequest<void>(`/teachers/${id}`, {
+    const result = await apiRequest<void>(`/teachers/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('teachers');
+    return result;
   },
 
   // Schools
   subscribeToSchools: (callback: (schools: School[]) => void) => {
+    const entity = 'schools';
     const fetchSchools = async () => {
       try {
         const { data } = await apiRequest<{ data: School[] }>('/schools?take=1000');
@@ -187,26 +256,47 @@ export const dataService = {
         }
       }
     };
+    
+    if (!subscriptionRegistry[entity]) {
+      subscriptionRegistry[entity] = {
+        fetchFn: fetchSchools,
+        callbacks: new Set(),
+        intervalId: setInterval(fetchSchools, 60000)
+      };
+    }
+    subscriptionRegistry[entity].callbacks.add(callback);
+    
     fetchSchools();
-    const interval = setInterval(fetchSchools, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      subscriptionRegistry[entity].callbacks.delete(callback);
+      if (subscriptionRegistry[entity].callbacks.size === 0) {
+        clearInterval(subscriptionRegistry[entity].intervalId);
+        delete subscriptionRegistry[entity];
+      }
+    };
   },
   addSchool: async (school: Omit<School, 'id'>) => {
-    return apiRequest<School>('/schools', {
+    const result = await apiRequest<School>('/schools', {
       method: 'POST',
       body: JSON.stringify(school),
     });
+    broadcastDataChange('schools');
+    return result;
   },
   updateSchool: async (id: string, school: Partial<School>) => {
-    return apiRequest<School>(`/schools/${id}`, {
+    const result = await apiRequest<School>(`/schools/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(school),
     });
+    broadcastDataChange('schools');
+    return result;
   },
   deleteSchool: async (id: string) => {
-    return apiRequest<void>(`/schools/${id}`, {
+    const result = await apiRequest<void>(`/schools/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('schools');
+    return result;
   },
 
   // Generic EMIS records
@@ -225,9 +315,25 @@ export const dataService = {
         }
       }
     };
+    
+    // Register in subscription registry for auto-refresh after mutations
+    if (!subscriptionRegistry[entity]) {
+      subscriptionRegistry[entity] = {
+        fetchFn: fetchData,
+        callbacks: new Set(),
+        intervalId: setInterval(fetchData, intervalMs)
+      };
+    }
+    subscriptionRegistry[entity].callbacks.add(callback);
+    
     fetchData();
-    const interval = setInterval(fetchData, intervalMs);
-    return () => clearInterval(interval);
+    return () => {
+      subscriptionRegistry[entity].callbacks.delete(callback);
+      if (subscriptionRegistry[entity].callbacks.size === 0) {
+        clearInterval(subscriptionRegistry[entity].intervalId);
+        delete subscriptionRegistry[entity];
+      }
+    };
   },
 
   // Inspections
@@ -235,21 +341,27 @@ export const dataService = {
     return dataService._subscribeToEmis('inspections', callback);
   },
   addInspection: async (inspection: Omit<Inspection, 'id'>) => {
-    return apiRequest<Inspection>('/emis/inspections', {
+    const result = await apiRequest<Inspection>('/emis/inspections', {
       method: 'POST',
       body: JSON.stringify(inspection),
     });
+    broadcastDataChange('inspections');
+    return result;
   },
   deleteInspection: async (id: string) => {
-    return apiRequest<void>(`/emis/inspections/${id}`, {
+    const result = await apiRequest<void>(`/emis/inspections/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('inspections');
+    return result;
   },
   updateInspection: async (id: string, inspection: Partial<Inspection>) => {
-    return apiRequest<Inspection>(`/emis/inspections/${id}`, {
+    const result = await apiRequest<Inspection>(`/emis/inspections/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(inspection),
     });
+    broadcastDataChange('inspections');
+    return result;
   },
 
   // TPD Programs
@@ -257,21 +369,27 @@ export const dataService = {
     return dataService._subscribeToEmis('tpd-programs', callback);
   },
   addTPDProgram: async (program: Omit<TPDProgram, 'id'>) => {
-    return apiRequest<TPDProgram>('/emis/tpd-programs', {
+    const result = await apiRequest<TPDProgram>('/emis/tpd-programs', {
       method: 'POST',
       body: JSON.stringify(program),
     });
+    broadcastDataChange('tpd-programs');
+    return result;
   },
   deleteTPDProgram: async (id: string) => {
-    return apiRequest<void>(`/emis/tpd-programs/${id}`, {
+    const result = await apiRequest<void>(`/emis/tpd-programs/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('tpd-programs');
+    return result;
   },
   updateTPDProgram: async (id: string, program: Partial<TPDProgram>) => {
-    return apiRequest<TPDProgram>(`/emis/tpd-programs/${id}`, {
+    const result = await apiRequest<TPDProgram>(`/emis/tpd-programs/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(program),
     });
+    broadcastDataChange('tpd-programs');
+    return result;
   },
 
   // Resources
@@ -279,21 +397,27 @@ export const dataService = {
     return dataService._subscribeToEmis('resources', callback);
   },
   addResource: async (resource: Omit<Resource, 'id'>) => {
-    return apiRequest<Resource>('/emis/resources', {
+    const result = await apiRequest<Resource>('/emis/resources', {
       method: 'POST',
       body: JSON.stringify(resource),
     });
+    broadcastDataChange('resources');
+    return result;
   },
   deleteResource: async (id: string) => {
-    return apiRequest<void>(`/emis/resources/${id}`, {
+    const result = await apiRequest<void>(`/emis/resources/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('resources');
+    return result;
   },
   updateResource: async (id: string, resource: Partial<Resource>) => {
-    return apiRequest<Resource>(`/emis/resources/${id}`, {
+    const result = await apiRequest<Resource>(`/emis/resources/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(resource),
     });
+    broadcastDataChange('resources');
+    return result;
   },
 
   // Examination Results
@@ -301,10 +425,12 @@ export const dataService = {
     return dataService._subscribeToEmis('examination-results', callback);
   },
   addExaminationResult: async (result: Omit<ExaminationResult, 'id'>) => {
-    return apiRequest<ExaminationResult>('/emis/examination-results', {
+    const res = await apiRequest<ExaminationResult>('/emis/examination-results', {
       method: 'POST',
       body: JSON.stringify(result),
     });
+    broadcastDataChange('examination-results');
+    return res;
   },
 
   // Exam Administration
@@ -312,15 +438,19 @@ export const dataService = {
     return dataService._subscribeToEmis('exam-administration', callback);
   },
   addExamAdministration: async (admin: Omit<ExamAdministration, 'id'>) => {
-    return apiRequest<ExamAdministration>('/emis/exam-administration', {
+    const result = await apiRequest<ExamAdministration>('/emis/exam-administration', {
       method: 'POST',
       body: JSON.stringify(admin),
     });
+    broadcastDataChange('exam-administration');
+    return result;
   },
   deleteExamAdministration: async (id: string) => {
-    return apiRequest<void>(`/emis/exam-administration/${id}`, {
+    const result = await apiRequest<void>(`/emis/exam-administration/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('exam-administration');
+    return result;
   },
 
   // Transfers
@@ -328,16 +458,20 @@ export const dataService = {
     return dataService._subscribeToEmis('transfer-history', callback);
   },
   addTransfer: async (transfer: Omit<Transfer, 'id'>) => {
-    return apiRequest<Transfer>('/emis/transfer-history', {
+    const result = await apiRequest<Transfer>('/emis/transfer-history', {
       method: 'POST',
       body: JSON.stringify(transfer),
     });
+    broadcastDataChange('transfer-history');
+    return result;
   },
   updateTransfer: async (id: string, transfer: Partial<Transfer>) => {
-    return apiRequest<Transfer>(`/emis/transfer-history/${id}`, {
+    const result = await apiRequest<Transfer>(`/emis/transfer-history/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(transfer),
     });
+    broadcastDataChange('transfer-history');
+    return result;
   },
 
   // Junior Results
@@ -345,21 +479,27 @@ export const dataService = {
     return dataService._subscribeToEmis('junior-results', callback);
   },
   addJuniorResult: async (result: Omit<JuniorResult, 'id'>) => {
-    return apiRequest<JuniorResult>('/emis/junior-results', {
+    const res = await apiRequest<JuniorResult>('/emis/junior-results', {
       method: 'POST',
       body: JSON.stringify(result),
     });
+    broadcastDataChange('junior-results');
+    return res;
   },
   updateJuniorResult: async (id: string, result: Partial<JuniorResult>) => {
-    return apiRequest<JuniorResult>(`/emis/junior-results/${id}`, {
+    const res = await apiRequest<JuniorResult>(`/emis/junior-results/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(result),
     });
+    broadcastDataChange('junior-results');
+    return res;
   },
   deleteJuniorResult: async (id: string) => {
-    return apiRequest<void>(`/emis/junior-results/${id}`, {
+    const result = await apiRequest<void>(`/emis/junior-results/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('junior-results');
+    return result;
   },
 
   // Standardised Results
@@ -367,21 +507,27 @@ export const dataService = {
     return dataService._subscribeToEmis('standardised-results', callback);
   },
   addStandardisedResult: async (result: Omit<StandardisedResult, 'id'>) => {
-    return apiRequest<StandardisedResult>('/emis/standardised-results', {
+    const res = await apiRequest<StandardisedResult>('/emis/standardised-results', {
       method: 'POST',
       body: JSON.stringify(result),
     });
+    broadcastDataChange('standardised-results');
+    return res;
   },
   updateStandardisedResult: async (id: string, result: Partial<StandardisedResult>) => {
-    return apiRequest<StandardisedResult>(`/emis/standardised-results/${id}`, {
+    const res = await apiRequest<StandardisedResult>(`/emis/standardised-results/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(result),
     });
+    broadcastDataChange('standardised-results');
+    return res;
   },
   deleteStandardisedResult: async (id: string) => {
-    return apiRequest<void>(`/emis/standardised-results/${id}`, {
+    const result = await apiRequest<void>(`/emis/standardised-results/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('standardised-results');
+    return result;
   },
 
   // PSLCE Data
@@ -389,31 +535,38 @@ export const dataService = {
     return dataService._subscribeToEmis('pslce-data', callback);
   },
   addPSLCEData: async (data: Omit<PSLCEData, 'id'>) => {
-    return apiRequest<PSLCEData>('/emis/pslce-data', {
+    const result = await apiRequest<PSLCEData>('/emis/pslce-data', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
   updatePSLCEData: async (id: string, data: Partial<PSLCEData>) => {
-    return apiRequest<PSLCEData>(`/emis/pslce-data/${id}`, {
+    const result = await apiRequest<PSLCEData>(`/emis/pslce-data/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+    broadcastDataChange('pslce-data');
+    return result;
   },
   deletePSLCEData: async (id: string) => {
-    return apiRequest<void>(`/emis/pslce-data/${id}`, {
+    const result = await apiRequest<void>(`/emis/pslce-data/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('pslce-data');
+    return result;
   },
 
   // Daily Attendance
   addDailyAttendance: async (attendance: Omit<DailyAttendance, 'id'>) => {
-    return apiRequest<DailyAttendance>('/emis/daily-attendance', {
+    const result = await apiRequest<DailyAttendance>('/emis/daily-attendance', {
       method: 'POST',
       body: JSON.stringify(attendance),
     });
+    broadcastDataChange('daily-attendance');
+    return result;
   },
   subscribeToDailyAttendance: (days: number, callback: (attendance: DailyAttendance[]) => void) => {
+    const entity = 'daily-attendance';
     const fetchData = async () => {
       try {
         const records = await apiRequest<DailyAttendance[]>(`/emis/daily-attendance?days=${days}`);
@@ -422,17 +575,35 @@ export const dataService = {
         console.error('Failed to fetch daily attendance:', err);
       }
     };
+    
+    // Register in subscription registry for auto-refresh after mutations
+    if (!subscriptionRegistry[entity]) {
+      subscriptionRegistry[entity] = {
+        fetchFn: fetchData,
+        callbacks: new Set(),
+        intervalId: setInterval(fetchData, 60000)
+      };
+    }
+    subscriptionRegistry[entity].callbacks.add(callback);
+    
     fetchData();
-    const interval = setInterval(fetchData, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      subscriptionRegistry[entity].callbacks.delete(callback);
+      if (subscriptionRegistry[entity].callbacks.size === 0) {
+        clearInterval(subscriptionRegistry[entity].intervalId);
+        delete subscriptionRegistry[entity];
+      }
+    };
   },
 
   // Monthly Enrolment
   addMonthlyEnrolment: async (enrolment: Omit<MonthlyEnrolment, 'id'>) => {
-    return apiRequest<MonthlyEnrolment>('/emis/monthly-enrolment', {
+    const result = await apiRequest<MonthlyEnrolment>('/emis/monthly-enrolment', {
       method: 'POST',
       body: JSON.stringify(enrolment),
     });
+    broadcastDataChange('monthly-enrolment');
+    return result;
   },
 
   // IFA Report
@@ -440,34 +611,42 @@ export const dataService = {
     return dataService._subscribeToEmis('ifa-reports', callback);
   },
   addIFAReport: async (report: Omit<IFAReport, 'id'>) => {
-    return apiRequest<IFAReport>('/emis/ifa-reports', {
+    const result = await apiRequest<IFAReport>('/emis/ifa-reports', {
       method: 'POST',
       body: JSON.stringify(report),
     });
+    broadcastDataChange('ifa-reports');
+    return result;
   },
 
   // Teachers Return
   addTeachersReturn: async (report: Omit<TeachersReturn, 'id'>) => {
-    return apiRequest<TeachersReturn>('/emis/teachers-returns', {
+    const result = await apiRequest<TeachersReturn>('/emis/teachers-returns', {
       method: 'POST',
       body: JSON.stringify(report),
     });
+    broadcastDataChange('teachers-returns');
+    return result;
   },
 
   // Termly Report
   addTermlyReport: async (report: Omit<TermlyReport, 'id'>) => {
-    return apiRequest<TermlyReport>('/emis/termly-reports', {
+    const result = await apiRequest<TermlyReport>('/emis/termly-reports', {
       method: 'POST',
       body: JSON.stringify(report),
     });
+    broadcastDataChange('termly-reports');
+    return result;
   },
 
   // Annual Census
   addAnnualCensus: async (census: Omit<AnnualCensus, 'id'>) => {
-    return apiRequest<AnnualCensus>('/emis/annual-census', {
+    const result = await apiRequest<AnnualCensus>('/emis/annual-census', {
       method: 'POST',
       body: JSON.stringify(census),
     });
+    broadcastDataChange('annual-census');
+    return result;
   },
 
   // Departments
@@ -475,21 +654,27 @@ export const dataService = {
     return dataService._subscribeToEmis('departments', callback);
   },
   addDepartment: async (department: Omit<Department, 'id'>) => {
-    return apiRequest<Department>('/emis/departments', {
+    const result = await apiRequest<Department>('/emis/departments', {
       method: 'POST',
       body: JSON.stringify(department),
     });
+    broadcastDataChange('departments');
+    return result;
   },
   updateDepartment: async (id: string, department: Partial<Department>) => {
-    return apiRequest<Department>(`/emis/departments/${id}`, {
+    const result = await apiRequest<Department>(`/emis/departments/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(department),
     });
+    broadcastDataChange('departments');
+    return result;
   },
   deleteDepartment: async (id: string) => {
-    return apiRequest<void>(`/emis/departments/${id}`, {
+    const result = await apiRequest<void>(`/emis/departments/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('departments');
+    return result;
   },
 
   // Officer Operations
@@ -497,21 +682,27 @@ export const dataService = {
     return dataService._subscribeToEmis('officer-operations', callback);
   },
   addOfficerOperation: async (operation: Omit<OfficerOperation, 'id'>) => {
-    return apiRequest<OfficerOperation>('/emis/officer-operations', {
+    const result = await apiRequest<OfficerOperation>('/emis/officer-operations', {
       method: 'POST',
       body: JSON.stringify(operation),
     });
+    broadcastDataChange('officer-operations');
+    return result;
   },
   updateOfficerOperation: async (id: string, operation: Partial<OfficerOperation>) => {
-    return apiRequest<OfficerOperation>(`/emis/officer-operations/${id}`, {
+    const result = await apiRequest<OfficerOperation>(`/emis/officer-operations/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(operation),
     });
+    broadcastDataChange('officer-operations');
+    return result;
   },
   deleteOfficerOperation: async (id: string) => {
-    return apiRequest<void>(`/emis/officer-operations/${id}`, {
+    const result = await apiRequest<void>(`/emis/officer-operations/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('officer-operations');
+    return result;
   },
 
   // Leave Requests
@@ -519,20 +710,25 @@ export const dataService = {
     return dataService._subscribeToEmis('leave-requests', callback);
   },
   addLeaveRequest: async (request: Omit<LeaveRequest, 'id'>) => {
-    return apiRequest<LeaveRequest>('/emis/leave-requests', {
+    const result = await apiRequest<LeaveRequest>('/emis/leave-requests', {
       method: 'POST',
       body: JSON.stringify(request),
     });
+    broadcastDataChange('leave-requests');
+    return result;
   },
   updateLeaveRequest: async (id: string, request: Partial<LeaveRequest>) => {
-    return apiRequest<LeaveRequest>(`/emis/leave-requests/${id}`, {
+    const result = await apiRequest<LeaveRequest>(`/emis/leave-requests/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(request),
     });
+    broadcastDataChange('leave-requests');
+    return result;
   },
 
   // Advanced Inspections
   subscribeToAdvancedInspections: (callback: (inspections: AdvancedInspection[]) => void) => {
+    const entity = 'advanced-inspections';
     const fetchInspections = async () => {
       try {
         const records = await apiRequest<AdvancedInspection[]>('/emis/inspections?isAdvanced=true');
@@ -541,15 +737,32 @@ export const dataService = {
         console.error('Failed to fetch advanced inspections:', err);
       }
     };
+    
+    if (!subscriptionRegistry[entity]) {
+      subscriptionRegistry[entity] = {
+        fetchFn: fetchInspections,
+        callbacks: new Set(),
+        intervalId: setInterval(fetchInspections, 60000)
+      };
+    }
+    subscriptionRegistry[entity].callbacks.add(callback);
+    
     fetchInspections();
-    const interval = setInterval(fetchInspections, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      subscriptionRegistry[entity].callbacks.delete(callback);
+      if (subscriptionRegistry[entity].callbacks.size === 0) {
+        clearInterval(subscriptionRegistry[entity].intervalId);
+        delete subscriptionRegistry[entity];
+      }
+    };
   },
   addAdvancedInspection: async (inspection: Omit<AdvancedInspection, 'id'>) => {
-    return apiRequest<AdvancedInspection>('/emis/inspections', {
+    const result = await apiRequest<AdvancedInspection>('/emis/inspections', {
       method: 'POST',
       body: JSON.stringify({ ...inspection, isAdvanced: true }),
     });
+    broadcastDataChange('advanced-inspections');
+    return result;
   },
 
   // NES Standards
@@ -557,10 +770,12 @@ export const dataService = {
     return dataService._subscribeToEmis('nes-standards', callback);
   },
   addNESStandard: async (standard: Omit<NESStandard, 'id'>) => {
-    return apiRequest<NESStandard>('/emis/nes-standards', {
+    const result = await apiRequest<NESStandard>('/emis/nes-standards', {
       method: 'POST',
       body: JSON.stringify(standard),
     });
+    broadcastDataChange('nes-standards');
+    return result;
   },
   
   // Continuous Assessment
@@ -568,15 +783,19 @@ export const dataService = {
     return dataService._subscribeToEmis('continuous-assessments', callback);
   },
   addContinuousAssessment: async (ca: Omit<ContinuousAssessment, 'id'>) => {
-    return apiRequest<ContinuousAssessment>('/emis/continuous-assessments', {
+    const result = await apiRequest<ContinuousAssessment>('/emis/continuous-assessments', {
       method: 'POST',
       body: JSON.stringify(ca),
     });
+    broadcastDataChange('continuous-assessments');
+    return result;
   },
   deleteContinuousAssessment: async (id: string) => {
-    return apiRequest<void>(`/emis/continuous-assessments/${id}`, {
+    const result = await apiRequest<void>(`/emis/continuous-assessments/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('continuous-assessments');
+    return result;
   },
 
   // Maintenance Logs
@@ -584,16 +803,20 @@ export const dataService = {
     return dataService._subscribeToEmis('maintenance-logs', callback);
   },
   addMaintenanceLog: async (log: Omit<MaintenanceLog, 'id'>) => {
-    return apiRequest<MaintenanceLog>('/emis/maintenance-logs', {
+    const result = await apiRequest<MaintenanceLog>('/emis/maintenance-logs', {
       method: 'POST',
       body: JSON.stringify(log),
     });
+    broadcastDataChange('maintenance-logs');
+    return result;
   },
   updateMaintenanceLog: async (id: string, log: Partial<MaintenanceLog>) => {
-    return apiRequest<MaintenanceLog>(`/emis/maintenance-logs/${id}`, {
+    const result = await apiRequest<MaintenanceLog>(`/emis/maintenance-logs/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(log),
     });
+    broadcastDataChange('maintenance-logs');
+    return result;
   },
 
   // SMC Meetings
@@ -601,14 +824,17 @@ export const dataService = {
     return dataService._subscribeToEmis('smc-meetings', callback);
   },
   addSMCMeeting: async (meeting: Omit<SMCMeeting, 'id'>) => {
-    return apiRequest<SMCMeeting>('/emis/smc-meetings', {
+    const result = await apiRequest<SMCMeeting>('/emis/smc-meetings', {
       method: 'POST',
       body: JSON.stringify(meeting),
     });
+    broadcastDataChange('smc-meetings');
+    return result;
   },
 
   // Learners
   subscribeToLearners: (callback: (learners: Learner[]) => void) => {
+    const entity = 'learners';
     const fetchLearners = async () => {
       try {
         const { data } = await apiRequest<{ data: Learner[] }>('/learners?take=1000');
@@ -622,26 +848,47 @@ export const dataService = {
         }
       }
     };
+    
+    if (!subscriptionRegistry[entity]) {
+      subscriptionRegistry[entity] = {
+        fetchFn: fetchLearners,
+        callbacks: new Set(),
+        intervalId: setInterval(fetchLearners, 60000)
+      };
+    }
+    subscriptionRegistry[entity].callbacks.add(callback);
+    
     fetchLearners();
-    const interval = setInterval(fetchLearners, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      subscriptionRegistry[entity].callbacks.delete(callback);
+      if (subscriptionRegistry[entity].callbacks.size === 0) {
+        clearInterval(subscriptionRegistry[entity].intervalId);
+        delete subscriptionRegistry[entity];
+      }
+    };
   },
   addLearner: async (learner: Omit<Learner, 'id'>) => {
-    return apiRequest<Learner>('/learners', {
+    const result = await apiRequest<Learner>('/learners', {
       method: 'POST',
       body: JSON.stringify(learner),
     });
+    broadcastDataChange('learners');
+    return result;
   },
   updateLearner: async (id: string, learner: Partial<Learner>) => {
-    return apiRequest<Learner>(`/learners/${id}`, {
+    const result = await apiRequest<Learner>(`/learners/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(learner),
     });
+    broadcastDataChange('learners');
+    return result;
   },
   deleteLearner: async (id: string) => {
-    return apiRequest<void>(`/learners/${id}`, {
+    const result = await apiRequest<void>(`/learners/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('learners');
+    return result;
   },
 
   // Promotion Records
@@ -649,15 +896,19 @@ export const dataService = {
     return dataService._subscribeToEmis('promotion-records', callback);
   },
   addPromotionRecord: async (record: Omit<PromotionRecord, 'id'>) => {
-    return apiRequest<any>('/emis/promotion-records', {
+    const result = await apiRequest<any>('/emis/promotion-records', {
        method: 'POST',
        body: JSON.stringify(record),
     });
+    broadcastDataChange('promotion-records');
+    return result;
   },
   deletePromotionRecord: async (id: string) => {
-    return apiRequest<void>(`/emis/promotion-records/${id}`, {
+    const result = await apiRequest<void>(`/emis/promotion-records/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('promotion-records');
+    return result;
   },
 
   // Enrollment Stats
@@ -665,15 +916,19 @@ export const dataService = {
      return dataService._subscribeToEmis('enrollment-stats', callback);
   },
   addEnrollmentStats: async (stats: Omit<EnrollmentStats, 'id'>) => {
-    return apiRequest<any>('/emis/enrollment-stats', {
+    const result = await apiRequest<any>('/emis/enrollment-stats', {
       method: 'POST',
       body: JSON.stringify(stats),
     });
+    broadcastDataChange('enrollment-stats');
+    return result;
   },
   deleteEnrollmentStats: async (id: string) => {
-    return apiRequest<void>(`/emis/enrollment-stats/${id}`, {
+    const result = await apiRequest<void>(`/emis/enrollment-stats/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('enrollment-stats');
+    return result;
   },
 
   // Audit Logs
@@ -692,10 +947,12 @@ export const dataService = {
     return dataService._subscribeToEmis('academic-years', callback);
   },
   addAcademicYear: async (year: Omit<AcademicYear, 'id'>) => {
-    return apiRequest<any>('/emis/academic-years', {
+    const result = await apiRequest<any>('/emis/academic-years', {
       method: 'POST',
       body: JSON.stringify(year),
     });
+    broadcastDataChange('academic-years');
+    return result;
   },
   
   // Terms
@@ -703,12 +960,14 @@ export const dataService = {
     return dataService._subscribeToEmis('terms', callback);
   },
   addTerm: async (term: Omit<Term, 'id'>) => {
-    return apiRequest<any>('/emis/terms', {
+    const result = await apiRequest<any>('/emis/terms', {
       method: 'POST',
       body: JSON.stringify(term),
     });
+    broadcastDataChange('terms');
+    return result;
   },
-  
+
   // Standard Classes
   subscribeToStandardClasses: (callback: (classes: StandardClass[]) => void) => {
     return dataService._subscribeToEmis('standard-classes', callback);
@@ -755,23 +1014,32 @@ export const dataService = {
   getSubmissions: async () => {
     return apiRequest<any>('/submissions');
   },
+  getSubmission: async (id: string) => {
+    return apiRequest<any>(`/submissions/${id}`);
+  },
   addSubmission: async (submission: any) => {
-    return apiRequest<any>('/submissions', {
+    const result = await apiRequest<any>('/submissions', {
       method: 'POST',
       body: JSON.stringify(submission),
     });
+    broadcastDataChange('submissions');
+    return result;
   },
   updateSubmissionStatus: async (id: string, status: string, feedback?: string) => {
-    return apiRequest<any>(`/submissions/${id}/status`, {
+    const result = await apiRequest<any>(`/submissions/${id}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status, feedback }),
     });
+    broadcastDataChange('submissions');
+    return result;
   },
   editSubmissionByTDC: async (id: string, updatedData: any, reason: string) => {
-    return apiRequest<any>(`/submissions/${id}/edit-by-tdc`, {
+    const result = await apiRequest<any>(`/submissions/${id}/edit-by-tdc`, {
       method: 'PUT',
       body: JSON.stringify({ updatedData, reason }),
     });
+    broadcastDataChange('submissions');
+    return result;
   },
   getAllData: async () => {
     return apiRequest<any>('/emis/all-data');
@@ -782,20 +1050,26 @@ export const dataService = {
     return apiRequest<any>('/users');
   },
   createUser: async (userData: any) => {
-    return apiRequest<any>('/users', {
+    const result = await apiRequest<any>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
+    broadcastDataChange('users');
+    return result;
   },
   updateUser: async (id: string, userData: any) => {
-    return apiRequest<any>(`/users/${id}`, {
+    const result = await apiRequest<any>(`/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(userData),
     });
+    broadcastDataChange('users');
+    return result;
   },
   deleteUser: async (id: string) => {
-    return apiRequest<any>(`/users/${id}`, {
+    const result = await apiRequest<any>(`/users/${id}`, {
       method: 'DELETE',
     });
+    broadcastDataChange('users');
+    return result;
   }
 };

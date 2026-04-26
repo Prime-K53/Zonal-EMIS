@@ -1801,9 +1801,8 @@ const SubmissionDetailView: React.FC<{
   useEffect(() => {
     const fetchDetail = async () => {
       try {
-        const res = await fetch(`/api/submissions/${submissionId}`);
-        if (res.ok) {
-          const data = await res.json();
+        const data = await dataService.getSubmission(submissionId);
+        if (data) {
           setSubmission(data);
         }
       } catch (err) {

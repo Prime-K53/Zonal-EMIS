@@ -17,6 +17,7 @@ import { SubmissionsModule } from './modules/submissions/submissions.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { EmisModule } from './modules/emis/emis.module';
 import { RebuildModule } from './modules/rebuild/rebuild.module';
+import { EnrollmentModule } from './modules/enrollment/enrollment.module';
 import { SyncController } from './modules/sync/sync.controller';
 import { MetricsController } from './components/metrics.controller';
 
@@ -39,6 +40,7 @@ import { MetricsController } from './components/metrics.controller';
     AuditLogsModule,
     EmisModule,
     RebuildModule,
+    EnrollmentModule,
   ],
   controllers: [SyncController, MetricsController],
 })

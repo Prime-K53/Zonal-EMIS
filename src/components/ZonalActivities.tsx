@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Dispatch, SetStateAction } from 'react';
 import { 
   Building2, 
   ClipboardList, 
@@ -58,7 +58,11 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const ZonalActivities: React.FC = () => {
+interface ZonalActivitiesProps {
+  onNavigate?: (tab: string) => void;
+}
+
+const ZonalActivities: React.FC<ZonalActivitiesProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'departments' | 'operations' | 'metrics'>('departments');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -742,7 +746,7 @@ const ZonalActivities: React.FC = () => {
                           </div>
                           <CheckCircle2 className="w-8 h-8 text-zinc-400" />
                         </div>
-                        <Button variant="ghost" className="w-full justify-between group" onClick={() => window.location.href = '/reports'}>
+                        <Button variant="ghost" className="w-full justify-between group" onClick={() => onNavigate?.('reports')}>
                           View Detailed Analysis Report
                           <ArrowUpRight className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
                         </Button>

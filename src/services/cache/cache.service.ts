@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { MetricsCacheException } from '../../src/exceptions/metrics.exceptions';
+import { MetricsCacheException } from '../../exceptions/metrics.exceptions';
 
 interface CacheEntry<T> {
   data: T;

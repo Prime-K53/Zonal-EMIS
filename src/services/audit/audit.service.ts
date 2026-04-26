@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../modules/prisma/prisma.service';
+import { PrismaService } from '../../modules/prisma/prisma.service';
 
 export type AuditAction = 'INSERT' | 'UPDATE' | 'DELETE';
 
